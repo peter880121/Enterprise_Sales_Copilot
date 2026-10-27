@@ -1,0 +1,14 @@
+.git
+.env
+.env.*
+.local
+test.env
+build-tools
+.cache
+**/.venv
+**/node_modules
+**/dist
+**/__pycache__
+**/.pytest_cache
+**/.ruff_cache
+image.png

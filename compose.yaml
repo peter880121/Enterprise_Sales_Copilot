@@ -1,0 +1,135 @@
+name: enterprise-sales-copilot
+
+x-api: &api
+  build:
+    context: .
+    dockerfile: backend/Dockerfile
+  profiles: [core]
+  environment: &app-environment
+    APP_ENV: development
+    DB_HOST: mysql
+    DB_NAME: ${MYSQL_DATABASE:?prepare .local/compose.env first}
+    DB_USER: ${MYSQL_USER:?}
+    DB_PASSWORD: ${MYSQL_PASSWORD:?}
+    CSRF_SIGNING_KEY: ${SESSION_SECRET:?}
+    ALLOWED_ORIGIN: http://localhost:5173
+    COOKIE_SECURE: "false"
+    MINIO_ENDPOINT: business-minio
+    MINIO_PORT: "9000"
+    MINIO_USE_SSL: "false"
+    MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:?}
+    MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:?}
+    MINIO_BUCKET: esc-evidence
+    AI_MODE: mock
+    KNOWLEDGE_ENABLED: "false"
+    ENABLE_DEV_SEED: "false"
+  restart: unless-stopped
+  init: true
+  networks: [core]
+
+services:
+  mysql:
+    image: mysql:8.4.8
+    profiles: [core]
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:?}
+      MYSQL_USER: ${MYSQL_USER:?}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?}
+    command: ["--default-storage-engine=InnoDB", "--character-set-server=utf8mb4", "--collation-server=utf8mb4_0900_ai_ci"]
+    volumes: ["mysql-data:/var/lib/mysql"]
+    networks: [core]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "MYSQL_PWD=$$MYSQL_PASSWORD mysql -u$$MYSQL_USER -D$$MYSQL_DATABASE -e 'SELECT 1' >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  business-minio:
+    image: minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
+    profiles: [core]
+    command: [server, /data, "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?}
+    volumes: ["minio-data:/data"]
+    networks: [core]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  storage-init:
+    # The same verified official image includes mc RELEASE.2025-08-13T08-35-41Z.
+    image: minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
+    profiles: [core]
+    entrypoint: [/bin/sh, /scripts/init-minio.sh]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:?}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:?}
+    volumes:
+      - ./infra/init-minio.sh:/scripts/init-minio.sh:ro
+      - ./infra/minio-business-policy.json:/policies/business.json:ro
+    networks: [core]
+    depends_on:
+      business-minio: {condition: service_healthy}
+    restart: "no"
+
+  migrate:
+    <<: *api
+    command: [alembic, upgrade, head]
+    restart: "no"
+    depends_on:
+      mysql: {condition: service_healthy}
+
+  api:
+    <<: *api
+    depends_on:
+      mysql: {condition: service_healthy}
+      migrate: {condition: service_completed_successfully}
+      storage-init: {condition: service_completed_successfully}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health/ready', timeout=6)"]
+      interval: 10s
+      timeout: 8s
+      retries: 10
+
+  worker:
+    <<: *api
+    command: [python, -m, app.worker]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      storage-init: {condition: service_completed_successfully}
+    stop_grace_period: 15s
+    healthcheck:
+      test: ["CMD", "python", "-c", "import pathlib,tempfile,time; p=pathlib.Path(tempfile.gettempdir())/'esc-worker-heartbeat'; raise SystemExit(0 if p.exists() and time.time()-p.stat().st_mtime<20 else 1)"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    profiles: [core]
+    ports: ["127.0.0.1:5173:80"]
+    networks: [core]
+    restart: unless-stopped
+    depends_on:
+      api: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+networks:
+  core:
+volumes:
+  mysql-data:
+  minio-data:
