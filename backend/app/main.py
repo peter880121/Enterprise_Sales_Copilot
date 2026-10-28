@@ -14,8 +14,12 @@ from app.auth.service import AuthService
 from app.core.config import get_settings
 from app.core.errors import AppError, error_response
 from app.core.logging import configure_logging
+from app.crm.router import router as crm_router
 from app.db import Database
+from app.sales.files import UploadBodyLimit
+from app.sales.router import router as sales_router
 from app.storage import ObjectStorage
+from app.users.router import router as users_router
 
 
 def create_app(settings=None, database=None, storage=None):
@@ -31,6 +35,7 @@ def create_app(settings=None, database=None, storage=None):
             db.close()
 
     app = FastAPI(title="Enterprise Sales Copilot", version="0.1.0", lifespan=lifespan)
+    app.add_middleware(UploadBodyLimit)
     app.state.settings, app.state.db = settings, db
     app.state.storage = storage or ObjectStorage(settings)
     app.state.auth = AuthService(db, settings)
@@ -59,15 +64,68 @@ def create_app(settings=None, database=None, storage=None):
 
     @app.exception_handler(AppError)
     async def app_error(request, exc):
-        return error_response(request, exc.status, exc.code, exc.message, exc.retryable)
+        return error_response(
+            request, exc.status, exc.code, exc.message, exc.retryable, exc.details
+        )
 
     @app.exception_handler(RequestValidationError)
-    async def validation_error(request, _exc):
+    async def validation_error(request, exc):
         # Do not reflect submitted passwords/tokens or Pydantic input payloads.
-        return error_response(request, 422, "VALIDATION_ERROR", "请求字段无效。")
+        protected = {
+            "id",
+            "version",
+            "created_at",
+            "updated_at",
+            "is_active",
+            "created_by",
+            "actor_id",
+            "stage",
+            "probability",
+            "weighted_amount",
+            "actual_amount",
+            "actual_currency",
+            "close_evidence_id",
+            "submitted_by",
+            "reviewed_by",
+            "reviewed_at",
+            "closed_at",
+            "closed_by",
+            "status",
+            "completed_at",
+            "storage_version_id",
+        }
+        if request.method == "PATCH" and "/contacts/" in request.url.path:
+            protected.add("account_id")
+        errors = exc.errors()
+        forbidden = any(
+            error["type"] == "extra_forbidden" and error["loc"][-1] in protected for error in errors
+        )
+        fields = [
+            {
+                "path": ".".join(str(part) for part in error["loc"]),
+                "code": error["type"],
+                "message": "请检查字段格式与允许范围。",
+            }
+            for error in errors
+        ]
+        return error_response(
+            request,
+            422,
+            "FIELD_NOT_EDITABLE" if forbidden else "VALIDATION_ERROR",
+            "请求字段无效。",
+            details={"fields": fields},
+        )
 
     @app.exception_handler(SQLAlchemyError)
     async def database_error(request, _exc):
+        if getattr(getattr(_exc, "orig", None), "args", (None,))[0] == 1213:
+            return error_response(
+                request,
+                409,
+                "RETRYABLE_TRANSACTION_CONFLICT",
+                "事务冲突已回滚，请用原幂等键重试。",
+                True,
+            )
         return error_response(request, 503, "DEPENDENCY_UNAVAILABLE", "数据库暂不可用。", True)
 
     @app.exception_handler(HTTPException)
@@ -80,6 +138,9 @@ def create_app(settings=None, database=None, storage=None):
         )
 
     app.include_router(auth_router, prefix="/api/v1")
+    app.include_router(crm_router, prefix="/api/v1")
+    app.include_router(sales_router, prefix="/api/v1")
+    app.include_router(users_router, prefix="/api/v1")
 
     @app.get("/api/v1/health/live")
     def live():
@@ -103,7 +164,7 @@ def create_app(settings=None, database=None, storage=None):
             "data": {
                 "crm": {
                     "available": crm,
-                    "reason": "foundation_only" if crm else "database_unavailable",
+                    "reason": "m2_sales" if crm else "database_unavailable",
                 },
                 "storage": {"available": store, "reason": None if store else "storage_unavailable"},
                 "ai": MockProvider().status()

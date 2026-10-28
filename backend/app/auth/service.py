@@ -69,7 +69,13 @@ class AuthService:
             valid = verify_password(
                 user.password_hash if user else dummy_hash, credentials.password
             )
-            if not valid or not user or not user.is_active:
+            if (
+                not valid
+                or not user
+                or not user.is_active
+                or user.deleted_at
+                or user.registration_status != "APPROVED"
+            ):
                 raise AppError(401, "INVALID_CREDENTIALS", "邮箱或密码不正确。")
             if hasher.check_needs_rehash(user.password_hash):
                 user.password_hash = hasher.hash(credentials.password)
@@ -112,7 +118,13 @@ class AuthService:
             ):
                 raise AppError(401, "SESSION_EXPIRED", "会话已失效，请重新登录。")
             user = session.get(User, auth.user_id)
-            if not user or not user.is_active or user.password_changed_at > auth.created_at:
+            if (
+                not user
+                or not user.is_active
+                or user.deleted_at
+                or user.registration_status != "APPROVED"
+                or user.password_changed_at > auth.created_at
+            ):
                 raise AppError(401, "SESSION_EXPIRED", "会话已失效，请重新登录。")
             if current - auth.last_seen_at >= timedelta(minutes=1):
                 auth.last_seen_at = current

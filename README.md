@@ -1,8 +1,18 @@
 # Enterprise Sales Copilot
 
-面向 B2B 销售团队的企业 AI 助手。当前实现 **M1 工程基础**：React 工作台、FastAPI、MySQL 认证会话、角色授权、MinIO 连接、Alembic、Core Compose 与 CI。客户、商机、状态机、会议解析和 RAG 尚未实现，界面明确显示后续阶段。
+2026-10-28 用户模块继续验收：修复邮箱冲突与审计失败的错误分类，补齐用户审计分页、操作者及字段差异。最新结果见 [用户模块补充验收](docs/m2-users-followup-report.md)，保留此前报告历史。
 
-**M1 已正式验收通过**，依据用户后续明确验收结论及本次首次 Git 基线准备任务书；MySQL 8.4、Core Compose 与 MinIO 的实际验收结果、历史失败和限制以[M1 报告§9](docs/m1-report.md)及[当前状态补充§10](docs/m1-report.md#10-当前状态补充2026-10-27)为准。本地测试实例为 MySQL 8.4.13/InnoDB，服务器隔离 Core 为 8.4.8，替换过程见[替换记录](docs/mysql84-replacement.md)。Q03、Q04、Q05、Q06 已批准；Q05-A、Q07—Q12 仍待确认，详见[决策记录§13](docs/decisions.md)。M2 尚未开始，代码开发仍须单独明确授权；GitHub 远端 CI 等未运行检查不因 M1 验收通过而变为已通过。
+M2.1 用户管理已实现，当前交付及实测结果见 [用户管理报告](docs/m2-users-report.md)。支持公开注册（等待管理员审批）、四种固定角色授权、管理员用户管理、个人资料和密码管理。注册不自动取得 CRM 访问权；用户删除为可恢复的逻辑删除。不进入 M3，客户/联系人停用继续延期。
+
+本轮隔离测试入口为 `http://localhost:5909`（需保持本轮 SSH 转发运行），注册页 `/register`，管理员入口 `/users`，个人账号 `/profile`。旧环境与旧报告保留。管理员测试凭据仅存放在忽略的 `.local/m2-users-20261027-b94f9cc3/browser-private.json`，不提供公开默认密码。
+
+M2 最新的独立 Compose、动态 DNS、Pipeline SQL 汇总及剩余验收结果见 [M2 验收补全报告](docs/m2-acceptance-report.md)。保留此前报告的历史结果；客户/联系人停用继续延期，尚未进入 M3。
+
+提交前审查的 P1/P2 修复、收紧后的运行权限及本轮回归见 [M2 审查修复报告](docs/m2-review-fixes-report.md)。测试准备使用独立身份；浏览器证据每次写入唯一 `.local/` 子目录，显式目录用 `E2E_OUTPUT_DIR` 指定父目录，禁止 CLI `--output` 覆盖旧证据。
+
+面向 B2B 销售团队的企业 AI 助手。M1已正式验收；本轮在已有M2-A实现上接入商机、状态机、Pipeline、活动/任务、成交证据核验与审计。M2开发已单独授权，实测结果及剩余验收见[M2报告](docs/m2-report.md)。会议AI与RAG尚未实现，不自动进入M3。
+
+M1历史环境与失败记录以[M1报告](docs/m1-report.md)为准，本轮不改写。Q03—Q06已批准；Q11成交证据仅PDF≤20 MiB/100页、Q12成交证据API代理下载获本轮批准，其他范围及Q05-A、Q07—Q10继续待确认。此前客户/联系人停用的延期保持，未将未运行的GitHub CI或整套M2部署声明为通过。
 
 ## 环境与目录
 
@@ -56,6 +66,8 @@ docker compose --env-file .local/compose.env --profile core ps
 
 生成器仅创建不存在的 `.local/compose.env`，随机生成专用本地密码，不覆盖 `.env`，重复执行保留文件。这一路径启动本地新 MySQL/MinIO，不连接 `.env`中的既有数据库。
 
+当前 Core 将 `MYSQL_USER/MYSQL_PASSWORD` 用于迁移，`MYSQL_RUNTIME_USER/MYSQL_RUNTIME_PASSWORD` 用于 API/Worker；迁移后授权初始化成功才启动应用，运行账户不能 UPDATE/DELETE 审计表。旧配置缺少新增运行账户参数时会明确停止，不会自动覆盖旧配置。请在独立副本生成新配置并指定新的 Compose 项目名，保留原环境及卷；不要直接复用 M1 测试环境。NGINX 使用 Docker DNS 动态解析 API，不自动重试代理写请求。
+
 服务：MySQL、业务 MinIO、一次性桶/策略初始化、一次性 Alembic migration、API、Worker、Frontend。API/Worker仅在迁移与桶初始化完成后启动；只有浏览器入口 `http://localhost:5173`绑定宿主机回环地址，数据库/MinIO/console/API均不公开端口。
 
 MinIO root只进入存储服务和一次性初始化任务；API/Worker使用 `esc_business`专用账户，限四个业务桶的必要对象操作，无管理员/CreateBucket权限，不访问未来Milvus内部桶。初始化可重复运行，不启用知识服务。Worker只有生命周期/心跳，没有队列或业务任务处理器，能力接口不会声称后台业务已就绪。
@@ -69,14 +81,16 @@ docker compose --env-file .local/compose.env --profile core run --rm migrate
 创建开发账号，不存在默认账号或固定密码：
 
 ```powershell
-docker compose --env-file .local/compose.env --profile core exec -e ENABLE_DEV_SEED=true api python -m app.bootstrap --email admin@example.test --name "Demo Admin" --role ADMIN
+docker compose --env-file .local/compose.env --profile core run --no-deps -e ENABLE_DEV_SEED=true migrate python -m app.bootstrap --email admin@example.test --name "Demo Admin" --role ADMIN
 ```
 
 命令交互式读取至少12字符密码，不显示、不记录、不覆盖同名账号。用自行输入的邮箱/密码登录。`APP_ENV=production`始终拒绝该开发初始化方式。
 
-## 使用现有 `.env` 的原生开发
+仅在已获授权的独立开发环境执行一次性账号准备；该任务使用迁移身份，API/Worker 的运行身份没有 users INSERT 权限。直接运行 MySQL 集成测试必须显式提供同一隔离库、不同身份的 `TEST_DATABASE_URL`（运行）和 `TEST_SEED_DATABASE_URL`（合成夹具准备）。
 
-本轮服务替换后，根.env已能连接新8.4服务，M1基础迁移已执行。当前本机请使用根.env；旧`.local/native.env`中的开发库保留在旧8.0服务中。下面为本机现阶段的启动方式：
+## M1历史原生开发步骤（M2使用隔离连接）
+
+以下为M1当时的运行记录；M2新代码要求0003_sales，不应照此对原配置库自动迁移。当前M2请使用文末专用测试库验证方式。本轮服务替换后，根.env已能连接新8.4服务，M1基础迁移已执行。当前本机请使用根.env；旧`.local/native.env`中的开发库保留在旧8.0服务中。下面为本机现阶段的启动方式：
 
 ```powershell
 Set-Location backend
@@ -192,3 +206,23 @@ E2E由上述后端代理验收工具传入临时合成账号，无硬编码测�
 `down --volumes`会永久删除本地MySQL/MinIO卷，只有明确决定清空且已备份时才手动使用；本次没有执行。不要把整个Compose项目的down当作停止未来knowledge模块的方式。
 
 外部验证工具保留其输出命名的 `esc_m1_test_*`库与 `esc-m1-test-*`桶及合成文件，不自动清理，避免误删既有数据。需要清理时先根据执行报告核对具体名称与归属。不得清理其他库、用户、桶或共享卷。
+
+## M2 隔离验证
+
+先在项目根目录保留原`.env`，确认其数据库凭据具备创建**新测试库/账户**的权限；不向原配置库迁移。
+
+```powershell
+Set-Location backend
+uv sync --frozen
+.venv\Scripts\python.exe -m tools.m2_validation
+```
+
+工具仅创建/复用忽略目录`.local/m2-validation/connection.json`记录的`esc_m1_test_m2_*`库和专用用户，迁移账户与运行账户分离，审计表运行权限仅SELECT/INSERT；记录Alembic、pytest及模型比对日志，不打印连接秘密、不删除任何资源。需网络/本机访问许可时按实际授权运行。
+
+新代码readiness要求`0003_sales`。原数据库不自动升级，勿直接对根.env配置库执行upgrade；部署前先审核新增迁移并明确目标环境。新增迁移无破坏性downgrade。原生演示使用专用测试连接通过环境变量覆盖DATABASE_URL，其他配置继续按原约定；不要把测试账号或`.local`内容提交。
+
+M2前端入口：`/opportunities`、`/accounts`、`/contacts`、`/activities`、`/audit-events`（全局审计仅经理/ADMIN）；证据原件通过受保护的API代理下载。金额采用十进制字符串、未知为null，概率不可编辑，WON实际统计只取所选核验证据。NGINX允许multipart包体≤21 MiB，应用仍严格限制PDF文件≤20 MiB/100页。
+
+真实MinIO/浏览器证据与隔离资源记录见M2报告；原M1容器、卷和历史证据未改动。该验证不代表完整M2 Compose已构建/部署或M2已正式验收。
+
+已启动且仅连接专用测试资源的API/前端可执行源码中的浏览器验收：将E2E_BASE_URL、E2E_EMAIL、E2E_PASSWORD设置为该隔离环境及自行创建的测试账号（不要打印或提交），另设E2E_SALES=true，在frontend运行`npm.cmd run test:e2e -- sales.spec.ts`。本轮工具在本地选择临时端口并于测试结束后停止API/Vite；数据库及MinIO测试资源保留，默认不删除。

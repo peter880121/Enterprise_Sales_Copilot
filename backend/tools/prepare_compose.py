@@ -10,7 +10,8 @@ if target.exists():
     raise SystemExit("Existing .local/compose.env preserved; no changes made.")
 values = {
     "MYSQL_DATABASE": "enterprise_sales_copilot",
-    "MYSQL_USER": "esc_app",
+    "MYSQL_USER": "esc_migrate",
+    "MYSQL_RUNTIME_USER": "esc_runtime",
     "MINIO_ROOT_USER": "esc_root",
     "MINIO_ACCESS_KEY": "esc_business",
     **{
@@ -18,6 +19,7 @@ values = {
         for name in (
             "MYSQL_ROOT_PASSWORD",
             "MYSQL_PASSWORD",
+            "MYSQL_RUNTIME_PASSWORD",
             "MINIO_ROOT_PASSWORD",
             "MINIO_SECRET_KEY",
             "SESSION_SECRET",

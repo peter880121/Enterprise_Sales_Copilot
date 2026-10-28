@@ -48,7 +48,21 @@ def integration_db(config_values):
     settings = Settings(**config_values)
     db = Database(settings)
     assert db.ready(), "Run Alembic against the dedicated test database first"
+    seed_url = os.getenv("TEST_SEED_DATABASE_URL")
+    if not seed_url:
+        pytest.fail("TEST_SEED_DATABASE_URL required for separate synthetic fixture preparation")
+    runtime, seed = make_url(url), make_url(seed_url)
+    if (runtime.host, runtime.port, runtime.database) != (
+        seed.host,
+        seed.port,
+        seed.database,
+    ) or runtime.username == seed.username:
+        pytest.fail(
+            "Fixture preparation must use a separate identity on the same isolated database"
+        )
+    db.seed = Database(Settings(**{**config_values, "database_url": seed_url}))
     yield settings, db
+    db.seed.close()
     db.close()
 
 
@@ -58,7 +72,7 @@ def api(integration_db):
     email = f"m1-{uuid4().hex}@example.test"
     password = "Synthetic-test-only-password-2026"
     user_id = str(uuid4())
-    with db.transaction() as session:
+    with db.seed.transaction() as session:
         current = now()
         session.add(
             User(

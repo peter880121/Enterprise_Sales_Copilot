@@ -9,10 +9,10 @@ x-api: &api
     APP_ENV: development
     DB_HOST: mysql
     DB_NAME: ${MYSQL_DATABASE:?prepare .local/compose.env first}
-    DB_USER: ${MYSQL_USER:?}
-    DB_PASSWORD: ${MYSQL_PASSWORD:?}
+    DB_USER: ${MYSQL_RUNTIME_USER:?prepare dedicated runtime account}
+    DB_PASSWORD: ${MYSQL_RUNTIME_PASSWORD:?prepare dedicated runtime secret}
     CSRF_SIGNING_KEY: ${SESSION_SECRET:?}
-    ALLOWED_ORIGIN: http://localhost:5173
+    ALLOWED_ORIGIN: ${ALLOWED_ORIGIN:-http://localhost:5173}
     COOKIE_SECURE: "false"
     MINIO_ENDPOINT: business-minio
     MINIO_PORT: "9000"
@@ -33,6 +33,7 @@ services:
     profiles: [core]
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?}
+      MYSQL_ROOT_HOST: "%"
       MYSQL_DATABASE: ${MYSQL_DATABASE:?}
       MYSQL_USER: ${MYSQL_USER:?}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:?}
@@ -82,16 +83,35 @@ services:
 
   migrate:
     <<: *api
+    environment:
+      <<: *app-environment
+      DB_USER: ${MYSQL_USER:?}
+      DB_PASSWORD: ${MYSQL_PASSWORD:?}
     command: [alembic, upgrade, head]
     restart: "no"
     depends_on:
       mysql: {condition: service_healthy}
+
+  db-runtime-init:
+    <<: *api
+    environment:
+      <<: *app-environment
+      DB_USER: root
+      DB_PASSWORD: ${MYSQL_ROOT_PASSWORD:?}
+      MYSQL_RUNTIME_USER: ${MYSQL_RUNTIME_USER:?}
+      MYSQL_RUNTIME_PASSWORD: ${MYSQL_RUNTIME_PASSWORD:?}
+      MYSQL_MIGRATION_USER: ${MYSQL_USER:?explicit migration identity required}
+    command: [python, -m, app.runtime_grants]
+    restart: "no"
+    depends_on:
+      migrate: {condition: service_completed_successfully}
 
   api:
     <<: *api
     depends_on:
       mysql: {condition: service_healthy}
       migrate: {condition: service_completed_successfully}
+      db-runtime-init: {condition: service_completed_successfully}
       storage-init: {condition: service_completed_successfully}
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health/ready', timeout=6)"]
@@ -104,6 +124,7 @@ services:
     command: [python, -m, app.worker]
     depends_on:
       migrate: {condition: service_completed_successfully}
+      db-runtime-init: {condition: service_completed_successfully}
       storage-init: {condition: service_completed_successfully}
     stop_grace_period: 15s
     healthcheck:
@@ -117,7 +138,7 @@ services:
       context: .
       dockerfile: frontend/Dockerfile
     profiles: [core]
-    ports: ["127.0.0.1:5173:80"]
+    ports: ["127.0.0.1:${FRONTEND_PORT:-5173}:80"]
     networks: [core]
     restart: unless-stopped
     depends_on:

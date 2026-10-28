@@ -4,6 +4,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 from app.core.config import Settings
+from app.schema import CURRENT_REVISION
 
 
 class Base(DeclarativeBase):
@@ -38,7 +39,7 @@ class Database:
                 revision = connection.execute(
                     text("SELECT version_num FROM alembic_version")
                 ).scalar()
-                return revision == "0001_auth"
+                return revision == CURRENT_REVISION
         except Exception:
             return False
 

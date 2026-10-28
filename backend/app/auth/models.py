@@ -21,7 +21,13 @@ class User(Base):
         CheckConstraint(
             "role IN ('ADMIN','SALES_MANAGER','SALES_REP','READ_ONLY')", name="ck_users_role"
         ),
+        CheckConstraint(
+            "registration_status IN ('PENDING','APPROVED')", name="ck_users_registration"
+        ),
+        CheckConstraint("registration_status='APPROVED' OR NOT is_active", name="ck_users_pending"),
+        CheckConstraint("deleted_at IS NULL OR NOT is_active", name="ck_users_deleted"),
         Index("ix_users_role_active", "role", "is_active", "id"),
+        Index("ix_users_registration", "registration_status", "is_active", "deleted_at", "id"),
         {"mysql_engine": "InnoDB", "mysql_charset": "utf8mb4"},
     )
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
@@ -31,6 +37,8 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String(512))
     role: Mapped[str] = mapped_column(String(24))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    registration_status: Mapped[str] = mapped_column(String(16), server_default="APPROVED")
+    deleted_at: Mapped[datetime | None] = mapped_column(DATETIME(fsp=6))
     password_changed_at: Mapped[datetime] = mapped_column(DATETIME(fsp=6))
     version: Mapped[int] = mapped_column(BigInteger, default=1)
     created_at: Mapped[datetime] = mapped_column(DATETIME(fsp=6))
@@ -53,6 +61,13 @@ class AuthSession(Base):
     idle_expires_at: Mapped[datetime] = mapped_column(DATETIME(fsp=6))
     absolute_expires_at: Mapped[datetime] = mapped_column(DATETIME(fsp=6))
     revoked_at: Mapped[datetime | None] = mapped_column(DATETIME(fsp=6), nullable=True)
+
+
+class SystemGuard(Base):
+    __tablename__ = "system_guards"
+    __table_args__ = {"mysql_engine": "InnoDB", "mysql_charset": "utf8mb4"}
+    key: Mapped[str] = mapped_column(String(40), primary_key=True)
+    version: Mapped[int] = mapped_column(BigInteger, nullable=False)
 
 
 class AuthThrottle(Base):

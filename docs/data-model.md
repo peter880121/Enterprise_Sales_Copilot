@@ -1,8 +1,8 @@
 # 数据模型与业务不变量
 
-第二轮设计提案 v0.2 · 2026-10-26。数据库基线为 MySQL 8.4 / InnoDB，技术基线已依本轮指令确定（ADR-01/02），Q04/Q05/Q06已批准，Q05-A及Q07—Q12仍待确认。以下是逻辑设计，不是已创建的迁移。
+第二轮设计提案 v0.2 · 2026-10-26。数据库基线为 MySQL 8.4 / InnoDB，技术基线已依本轮指令确定（ADR-01/02），Q04/Q05/Q06已批准；Q11/Q12成交证据范围本轮批准，其他范围待确认。逻辑设计与本轮物理实现差异见M2报告；未交付模块仍非已创建迁移。
 
-实施状态：设计、技术栈与Q03已批准，本轮Q04/Q05/Q06已批准，其余未批准事项继续待确认；仅同步文档，未授权M2开发。M1仅迁移User/Session/AuthThrottle；其他表未创建。M1 UUID用VARCHAR(36)实现，其他逻辑约束不变；完整CRM模型仍为后续设计，见 [M1报告](m1-report.md)。
+实施状态：M1正式验收通过；Q03—Q06已批准；用户于2026-10-27明确授权开始M2。Q11仅成交证据PDF≤20 MiB/≤100页获批，Q12仅成交证据API代理下载、每次重新鉴权获批；Q05-A、Q07—Q10及Q11/Q12其余范围继续待确认。实施与未完成项见[M2报告](m2-report.md)，不自动进入M3。
 ## 1. 通用约定
 
 - ID：CHAR(36) ASCII UUID，主键；API 按字符串表示。FK 默认 RESTRICT，不级联删除业务历史。
@@ -150,7 +150,7 @@ API代理流式上传，服务端生成对象键并限制字节数；只有存�
 
 id UUID PK；opportunity_id FK；type=SIGNED_CONTRACT/PURCHASE_ORDER/OTHER_APPROVED；stored_object_id UNIQUE FK；reference_number VARCHAR(100)；customer_legal_name VARCHAR(200)；document_date DATE；amount DECIMAL(18,2)>0；currency CHAR(3)；status=PENDING/VERIFIED/REJECTED；submitted_by FK；reviewed_by nullable User FK；reviewed_at nullable DATETIME(6)；verification_note VARCHAR(2000) nullable；approval_basis VARCHAR(2000) nullable；version、C/U。
 
-证据文件PDF≤20MiB/100页仍为Q11待确认限制，不使用知识库解析结果代替证据核验。Q04已批准：REP可按对象权限准备/提交，只有另一位有效且有对象及核验操作权限的SALES_MANAGER/ADMIN可review（VERIFY或REJECT）；submitted_by由认证身份确定，不允许调用方指定。后端在统一锁序事务内校验角色、权限和submitted_by != reviewed_by，ADMIN不豁免；记录reviewed_by、reviewed_at、status核验结果、verification_note及必要业务依据，同事务追加审计。核对原件、签章/PO、客户主体、编号、金额币种和日期，不宣称法律真实性认证。
+证据文件仅PDF、≤20MiB/100页已由用户明确批准Q11成交证据范围，不使用知识库解析结果代替证据核验。Q04已批准：REP可按对象权限准备/提交，只有另一位有效且有对象及核验操作权限的SALES_MANAGER/ADMIN可review（VERIFY或REJECT）；submitted_by由认证身份确定，不允许调用方指定。后端在统一锁序事务内校验角色、权限和submitted_by != reviewed_by，ADMIN不豁免；记录reviewed_by、reviewed_at、status核验结果、verification_note及必要业务依据，同事务追加审计。核对原件、签章/PO、客户主体、编号、金额币种和日期，不宣称法律真实性认证。
 
 约束：PENDING时reviewed_by/reviewed_at/verification_note为空；VERIFIED/REJECTED时这三项非空且说明去空白非空，CHECK(reviewed_by IS NULL OR reviewed_by <> submitted_by)，状态及非空组合另加CHECK。角色/对象/操作权限不能仅靠CHECK或用户ID比较，服务在事务内重新检查有效身份与权限。VERIFIED内容及原件不可改删；被拒后可提交新候选，审核记录不覆盖。WON引用证据不自动清理，最终保留期限仍待Q10确认。
 
@@ -274,3 +274,10 @@ SystemGuard与KnowledgeIndexConfig只为最后管理员保护和知识索引代�
 9. 最后管理员约束和客户停用/商机创建竞态以真实锁测试验证，不能仅在前端禁用按钮。
 
 容量/保留：MVP不自动清理业务审计和成交证据；建议原始AI纪要保留90天作为待确认策略，未批准前不实现自动删除。Job/AIRun建议保留30天、幂等结果7天，已执行建议的去重与审计记录不能随Job清理丢失。清理Job时保留tombstone或使用归档而非破坏FK；实际保留策略由评审决定。
+# M2.1 实际模型增量（2026-10-27）
+
+`0004_users` 接续 `0003_sales`。User 增加 `registration_status VARCHAR(16) NOT NULL DEFAULT 'APPROVED'` 与可空 `deleted_at DATETIME(6)`；已有用户保持原角色、启用状态、密码、ID、版本与关联。新公开注册由服务显式写 PENDING/非活动；READ_ONLY 仅为未审批行的存储占位值，不赋予访问权。界面显示“未分配”。
+
+约束：注册状态为 PENDING/APPROVED；PENDING 和已删除用户不得启用。新增 `(registration_status,is_active,deleted_at,id)` 索引。`system_guards(key VARCHAR(40) PK, version BIGINT NOT NULL)` 为 InnoDB 表，迁移插入 `active_admin` 行；服务在管理员变更前 `SELECT ... FOR UPDATE`，不自动清理或重建 guard。
+
+逻辑删除只修改用户状态与版本，外键仍 RESTRICT，不物理删除任何关联。注册/审批/管理/个人资料/密码操作记录 USER 审计，白名单排除密码、哈希、会话、内部字段。现有会话、节流、审计和幂等表复用；不修改历史记录。迁移不提供破坏性 downgrade，升级前备份并安排部署窗口；旧 schema 不能 ready。实测保留验证与权限矩阵见 [M2.1 报告](m2-users-report.md)。

@@ -19,11 +19,11 @@ export class ApiError extends Error {
 let csrfToken: string | undefined;
 export const setCsrfToken = (value?: string) => { csrfToken = value; };
 
-export async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+export async function request<T>(path: string, options: RequestInit = {}, withPage = false): Promise<T> {
   if (!path.startsWith('/api/v1/')) throw new Error('API requests must use the same-origin API path');
   const method = options.method || 'GET';
   const headers = new Headers(options.headers);
-  if (options.body) headers.set('Content-Type', 'application/json');
+  if (options.body && !(options.body instanceof FormData)) headers.set('Content-Type', 'application/json');
   if (!['GET', 'HEAD'].includes(method) && csrfToken) headers.set('X-CSRF-Token', csrfToken);
   let response: Response;
   try {
@@ -37,7 +37,7 @@ export async function request<T>(path: string, options: RequestInit = {}): Promi
     throw new ApiError(response.status, body?.error?.code || 'HTTP_ERROR',
       body?.error?.message || '服务暂不可用，请稍后重试。', body?.request_id);
   }
-  return body.data as T;
+  return (withPage ? body : body.data) as T;
 }
 
 export const authApi = {

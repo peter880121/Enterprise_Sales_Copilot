@@ -26,10 +26,14 @@ class UserPublic(BaseModel):
     email: str
     role: Role
     is_active: bool
+    registration_status: str = "APPROVED"
+    deleted_at: datetime | None = None
     version: int
     created_at: datetime
     updated_at: datetime
 
-    @field_serializer("created_at", "updated_at")
-    def utc_datetime(self, value: datetime):
+    @field_serializer("created_at", "updated_at", "deleted_at")
+    def utc_datetime(self, value: datetime | None):
+        if value is None:
+            return None
         return value.replace(tzinfo=UTC).isoformat().replace("+00:00", "Z")

@@ -108,21 +108,21 @@ def test_expiry(api, expiry):
 def test_inactive_and_role_change_immediately_effective(api):
     client, db, _, _, user_id = api
     assert login(api).status_code == 200
-    with db.transaction() as session:
+    with db.seed.transaction() as session:
         session.get(User, user_id).role = "ADMIN"
     assert client.get("/api/v1/admin/access-check").status_code == 200
-    with db.transaction() as session:
+    with db.seed.transaction() as session:
         session.get(User, user_id).is_active = False
     assert client.get("/api/v1/auth/me").status_code == 401
 
 
 def test_real_transaction_rollback_and_pool_release(api):
     _, db, _, _, user_id = api
-    with pytest.raises(RuntimeError), db.transaction() as session:
+    with pytest.raises(RuntimeError), db.seed.transaction() as session:
         session.get(User, user_id).name = "Should roll back"
         session.flush()
         raise RuntimeError("synthetic failure")
-    with db.transaction() as session:
+    with db.seed.transaction() as session:
         assert session.get(User, user_id).name == "Synthetic M1 user"
         engine = session.scalar(
             text(
@@ -168,7 +168,7 @@ def test_capabilities_real_dependency_state(api):
 )
 def test_all_roles_come_from_database(api, role, expected):
     client, db, _, _, user_id = api
-    with db.transaction() as session:
+    with db.seed.transaction() as session:
         session.get(User, user_id).role = role
     assert login(api).status_code == 200
     assert client.get("/api/v1/admin/access-check").status_code == expected

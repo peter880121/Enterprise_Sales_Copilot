@@ -3,18 +3,23 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Navigate, Route, Routes, useNavigate, Link } from 'react-router-dom';
+import { Navigate, Route, Routes, useNavigate, useLocation, Link } from 'react-router-dom';
 import { BookOpen, ChevronRight, Command, LayoutDashboard, LogOut, ShieldCheck,
   Target, Users, Activity, PanelLeftClose } from 'lucide-react';
 import { ApiError, authApi, request, type Capabilities, type SessionData } from './api';
 import { EmptyState, ErrorState, Loading } from './components';
+import { CRMWorkspace } from './crm';
+import { SalesWorkspace } from './sales';
+import { Profile, Register, UsersWorkspace } from './users';
+import { userEmail } from './user-validation';
 
 const loginSchema = z.object({
-  email: z.email('请输入有效邮箱地址。'),
+  email: userEmail,
   password: z.string().min(1, '请输入密码。').max(128, '密码过长。'),
 });
 
 export function Login() {
+  const location = useLocation();
   const navigate = useNavigate();
   const cache = useQueryClient();
   const [error, setError] = useState('');
@@ -25,7 +30,7 @@ export function Login() {
     <Link className="brand" to="/"><Command /> SALES COPILOT</Link>
     <div><span className="eyebrow">ENTERPRISE WORKSPACE</span><h1>让每一次跟进，<br />都有清晰的依据。</h1>
       <p>连接销售流程与 AI 辅助能力。以可信数据、明确权限和人工审核，构建企业销售工作空间。</p></div>
-    <small>Enterprise Sales Copilot · 工程基础阶段 M1</small>
+    <small>Enterprise Sales Copilot · M2 CRM 工作空间</small>
   </section><section className="login-panel"><form noValidate onSubmit={handleSubmit(async (values) => {
     setError('');
     try {
@@ -34,7 +39,8 @@ export function Login() {
       navigate('/', { replace: true });
     } catch (err) { setError(err instanceof Error ? err.message : '登录失败，请重试。'); }
   })}>
-    <span className="eyebrow">安全访问</span><h2>登录工作空间</h2><p className="muted">使用管理员为你创建的企业账号。</p>
+    <span className="eyebrow">安全访问</span><h2>登录工作空间</h2><p className="muted">使用已批准的企业账号。</p>
+    {location.state?.notice && <p role="status">{String(location.state.notice)}</p>}
     <label htmlFor="email">邮箱</label><input id="email" type="email" autoComplete="username"
       aria-invalid={!!errors.email} {...register('email')} />
     {errors.email && <p className="field-error" role="alert">{errors.email.message}</p>}
@@ -44,7 +50,8 @@ export function Login() {
     {error && <ErrorState message={error} />}
     <button className="primary" type="submit" disabled={isSubmitting}>
       {isSubmitting ? '正在登录…' : '进入工作空间'}<ChevronRight size={16} /></button>
-    <p className="login-note"><ShieldCheck size={16} />受保护的会话 · 无开放注册</p>
+    <p className="login-note"><ShieldCheck size={16} />受保护的会话 · 注册后需管理员批准</p>
+    <Link to="/register">注册账号</Link><p>忘记密码？请联系管理员重置。</p>
   </form></section></main>;
 }
 
@@ -57,7 +64,7 @@ function StatusPanel() {
   const services = [
     ['数据库基础', data.crm.available ? '就绪' : '不可用', data.crm.available],
     ['对象存储', data.storage.available ? '可访问' : '不可用', data.storage.available],
-    ['AI 适配层', data.ai.mode === 'MOCK' ? 'MOCK · 仅适配骨架' : 'REAL · M1 未启用', false],
+    ['AI 适配层', data.ai.mode === 'MOCK' ? 'MOCK · 仅适配骨架' : 'REAL · 尚未启用', false],
     ['知识库', '后续阶段 · 未实现', false],
     ['Worker', '基础进程 · 无业务处理器', false],
   ] as const;
@@ -69,24 +76,31 @@ function StatusPanel() {
 }
 
 function Workspace({ session }: { session: SessionData }) {
+  const location = useLocation();
+  const crmPage = location.pathname.startsWith('/accounts') || location.pathname === '/contacts';
+  const salesPage = location.pathname.startsWith('/opportunities') || ['/activities', '/audit-events'].includes(location.pathname);
+  const usersPage = location.pathname.startsWith('/users');
+  const profilePage = location.pathname === '/profile';
   const cache = useQueryClient();
   const navigate = useNavigate();
   const [logoutError, setLogoutError] = useState('');
   const [loggingOut, setLoggingOut] = useState(false);
-  const items = [[LayoutDashboard, '工作空间', 'M1'], [Target, '销售商机', 'M2'],
+  const items = [[LayoutDashboard, '工作空间', 'M2'], [Target, '销售商机', 'M2'],
     [Users, '客户与联系人', 'M2'], [Activity, '销售活动', 'M2'], [BookOpen, '企业知识库', 'M4'],
-    [ShieldCheck, '审计日志', 'M2']] as const;
+    [ShieldCheck, '审计日志', 'M2'], [Users, '用户管理', 'M2.1'], [ShieldCheck, '个人账号', 'M2.1']] as const;
   return <div className="workspace"><aside className="sidebar">
     <Link to="/" className="brand"><Command size={23} /><span>SALES COPILOT<small>ENTERPRISE</small></span></Link>
     <div className="workspace-label">销售工作空间 <PanelLeftClose size={14} /></div>
-    <nav aria-label="主导航">{items.map(([Icon, name, stage], index) => <button key={name}
-      className={index === 0 ? 'nav-item selected' : 'nav-item'} disabled={index !== 0}
-      title={index !== 0 ? `${stage} 交付，当前不可用` : undefined}>
+    <nav aria-label="主导航">{items.map(([Icon, name, stage], index) => index === 6 && session.user.role !== 'ADMIN' ? null : <button key={name}
+      className={(usersPage ? index === 6 : profilePage ? index === 7 : salesPage ? index === (location.pathname === '/activities' ? 3 : location.pathname === '/audit-events' ? 5 : 1) : crmPage ? index === 2 : index === 0) ? 'nav-item selected' : 'nav-item'}
+      disabled={index === 4 || (index === 5 && !['ADMIN', 'SALES_MANAGER'].includes(session.user.role))}
+      onClick={() => navigate(index === 6 ? '/users' : index === 7 ? '/profile' : index === 2 ? '/accounts' : index === 1 ? '/opportunities' : index === 3 ? '/activities' : index === 5 ? '/audit-events' : '/')}
+      title={index === 4 ? `${stage} 交付，当前不可用` : undefined}>
       <Icon size={17} /><span>{name}</span><small>{stage}</small></button>)}</nav>
     <div className="sidebar-foot"><ShieldCheck size={17} /><span>后端权限校验<small>单企业 · 安全会话</small></span></div>
   </aside><div className="workspace-main"><header className="topbar">
-    <div>工作空间 <ChevronRight size={14} /><strong>概览</strong></div>
-    <span className="phase">M1 / FOUNDATION</span><div className="identity"><span className="avatar">{session.user.name.slice(0, 1)}</span>
+    <div>工作空间 <ChevronRight size={14} /><strong>{usersPage ? '用户与权限' : profilePage ? '个人账号' : salesPage ? '销售商机' : crmPage ? '客户与联系人' : '概览'}</strong></div>
+    <span className="phase">{usersPage || profilePage ? 'M2.1 / USERS' : salesPage ? 'M2 / SALES' : crmPage ? 'M2-A / CRM' : 'M2 / WORKSPACE'}</span><div className="identity"><span className="avatar">{session.user.name.slice(0, 1)}</span>
       <span>{session.user.name}<small>{session.user.role}</small></span>
       <button aria-label="退出登录" title="退出登录" disabled={loggingOut} onClick={async () => {
         setLoggingOut(true); setLogoutError('');
@@ -95,20 +109,22 @@ function Workspace({ session }: { session: SessionData }) {
         finally { setLoggingOut(false); }
       }}><LogOut size={16} /></button></div>
     </header><main className="content">{logoutError && <ErrorState message={logoutError} />}
+      {usersPage ? <UsersWorkspace session={session} /> : profilePage ? <Profile /> : salesPage ? <SalesWorkspace session={session} /> : crmPage ? <CRMWorkspace session={session} /> : <>
       <div className="page-heading"><div><span className="eyebrow">WORKSPACE / OVERVIEW</span>
-        <h1>工作空间概览</h1><p>基础连接与安全会话已建立。业务模块将按里程碑逐步交付。</p></div>
-        <span className="outline-badge">工程基础 · M1</span></div>
+        <h1>工作空间概览</h1><p>CRM 核心流程与用户管理已接入，AI 和知识库仍在后续阶段。</p></div>
+        <span className="outline-badge">M2 · CRM 与用户管理</span></div>
       <div className="overview-grid"><section className="panel welcome">
         <span className="eyebrow">WELCOME, {session.user.name}</span><h2>为销售业务建立可靠的起点</h2>
-        <p>当前阶段提供身份认证、角色授权、数据连接和统一工作台框架。这里将承载后续的商机管理与人工审核流程。</p>
+        <p>客户、联系人、商机、成交证据和用户管理已接入真实服务。AI 与知识库仍在后续阶段。</p>
         <div className="milestone"><span>01</span><div><strong>工程基础设施</strong><small>会话 / MySQL / 对象存储 / 服务状态</small></div>
-          <span className="outline-badge">当前阶段</span></div>
+          <span className="outline-badge">已验收</span></div>
         <div className="milestone future"><span>02</span><div><strong>CRM 核心业务</strong><small>客户 / 商机 / 状态机 / 审计</small></div>
-          <span>后续交付</span></div>
+          <span>当前阶段</span></div>
       </section><StatusPanel /></div>
       <section className="panel"><header className="panel-title"><h2>销售业务区域</h2><span>M2 起交付</span></header>
-        <EmptyState title="业务模块尚未交付" description="当前没有商机或 Pipeline 指标。完成 M1 验收后，将逐步接入真实业务流程。" /></section>
+        <EmptyState title="进入销售商机查看 Pipeline" description="客户与联系人、商机和成交证据已接入真实 API。知识库与 AI 仍待后续阶段交付。" /></section>
       <footer>Enterprise Sales Copilot · 单企业工作空间<span>会话身份由后端验证</span></footer>
+      </>}
     </main></div></div>;
 }
 
@@ -123,5 +139,6 @@ export function ProtectedWorkspace() {
 
 export default function App() {
   return <Routes><Route path="/login" element={<Login />} />
-    <Route path="/" element={<ProtectedWorkspace />} /><Route path="*" element={<Navigate to="/" replace />} /></Routes>;
+    <Route path="/register" element={<Register />} />
+    <Route path="/*" element={<ProtectedWorkspace />} /></Routes>;
 }

@@ -1,4 +1,4 @@
-name: M1 foundation
+name: CRM quality checks
 on: [push, pull_request]
 permissions:
   contents: read
@@ -37,9 +37,46 @@ jobs:
       - run: uv run ruff check .
       - run: uv run ruff format --check .
       - run: uv run python -m compileall -q app alembic
-      - run: uv run alembic upgrade head
+      - name: Prepare isolated migration and runtime identities
+        run: |
+          uv run python - <<'PY'
+          import os
+          from sqlalchemy import create_engine, text
+          from sqlalchemy.engine import make_url
+          url = make_url(os.environ['DATABASE_URL'])
+          assert url.database == 'esc_m1_test_ci'
+          engine = create_engine(url, hide_parameters=True)
+          migration = 'esc_ci_migrate'
+          migration_password = 'ci-only-synthetic-migration-password'
+          runtime_password = 'ci-only-synthetic-runtime-password'
+          with engine.begin() as connection:
+              connection.execute(text("CREATE USER 'esc_ci_migrate'@'%' IDENTIFIED BY :password"), {'password': migration_password})
+              connection.execute(text("GRANT ALL ON esc_m1_test_ci.* TO 'esc_ci_migrate'@'%'"))
+              connection.execute(text("CREATE DATABASE esc_m1_test_ci_lastadmin CHARACTER SET utf8mb4"))
+              connection.execute(text("GRANT ALL ON esc_m1_test_ci_lastadmin.* TO 'esc_ci_migrate'@'%'"))
+          with open(os.environ['GITHUB_ENV'], 'a') as output:
+              values = {
+                  'MIGRATION_DATABASE_URL': url.set(username=migration, password=migration_password).render_as_string(hide_password=False),
+                  'TEST_SEED_DATABASE_URL': url.set(username=migration, password=migration_password).render_as_string(hide_password=False),
+                  'TEST_DATABASE_URL': url.set(username='esc_ci_runtime', password=runtime_password).render_as_string(hide_password=False),
+                  'LAST_ADMIN_ROOT_URL': url.set(database='esc_m1_test_ci_lastadmin').render_as_string(hide_password=False),
+                  'LAST_ADMIN_MIGRATION_URL': url.set(database='esc_m1_test_ci_lastadmin', username=migration, password=migration_password).render_as_string(hide_password=False),
+                  'TEST_LAST_ADMIN_SEED_DATABASE_URL': url.set(database='esc_m1_test_ci_lastadmin', username=migration, password=migration_password).render_as_string(hide_password=False),
+                  'TEST_LAST_ADMIN_DATABASE_URL': url.set(database='esc_m1_test_ci_lastadmin', username='esc_ci_last_runtime', password=runtime_password).render_as_string(hide_password=False),
+                  'MYSQL_MIGRATION_USER': migration,
+                  'MYSQL_RUNTIME_USER': 'esc_ci_runtime',
+                  'MYSQL_RUNTIME_PASSWORD': runtime_password,
+              }
+              for key, value in values.items():
+                  output.write(key + '=' + value + '\n')
+          engine.dispose()
+          PY
+      - run: DATABASE_URL="$MIGRATION_DATABASE_URL" uv run alembic upgrade head
+      - run: uv run python -m app.runtime_grants
+      - run: DATABASE_URL="$LAST_ADMIN_MIGRATION_URL" uv run alembic upgrade head
+      - run: DATABASE_URL="$LAST_ADMIN_ROOT_URL" MYSQL_RUNTIME_USER=esc_ci_last_runtime uv run python -m app.runtime_grants
       - run: uv run pytest -q
-      - run: uv run alembic check
+      - run: DATABASE_URL="$MIGRATION_DATABASE_URL" uv run alembic check
   frontend:
     runs-on: ubuntu-latest
     defaults:

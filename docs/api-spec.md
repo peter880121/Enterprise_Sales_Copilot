@@ -2,7 +2,7 @@
 
 第二轮设计提案 v0.2 · 2026-10-26。前缀 `/api/v1`。本文件描述待实现契约；详细字段范围以 [data-model.md](data-model.md) 和 [technical-design.md](technical-design.md) 为准。
 
-实施状态：设计、技术栈与Q03已批准；Q04、Q05、Q06已由本轮任务书批准，Q05-A及Q07—Q12仍待确认；本轮仅文档同步，M2未授权。M1仅实现login/me/logout、health/live、health/ready、capabilities，并新增GET /admin/access-check（仅ADMIN，200授权探针/401/403，不是用户管理）。本文件其他接口仍为后续契约，见 [M1报告](m1-report.md)。
+实施状态：M1正式验收通过；Q03—Q06已批准；用户于2026-10-27明确授权开始M2。Q11仅成交证据PDF≤20 MiB/≤100页获批，Q12仅成交证据API代理下载、每次重新鉴权获批；Q05-A、Q07—Q10及Q11/Q12其余范围继续待确认。实施与未完成项见[M2报告](m2-report.md)，不自动进入M3。
 ## 1. 全局约定
 
 JSON命名snake_case；ID为UUID字符串，时间RFC3339 UTC，金额为字符串，日期YYYY-MM-DD。未知字段拒绝422 VALIDATION_ERROR；已知只读/受保护字段（stage、probability、weighted_amount、actual_amount/actual_currency、close_evidence_id、submitted_by/reviewed_by等）出现在不允许写入的创建/PATCH/建议或执行载荷中，统一422 FIELD_NOT_EDITABLE；专用命令只允许自身显式Schema字段。Cookie会话认证，写入要求Origin+CSRF；登录仅要求可信Origin，成功建立会话并返回内存用CSRF token。所有受保护端点均可能401 SESSION_EXPIRED、403 FORBIDDEN、429 RATE_LIMITED、500 INTERNAL_ERROR、503 DEPENDENCY_UNAVAILABLE；每个端点还需统一验证错误422 VALIDATION_ERROR。查询对象不存在或不可读时404 NOT_FOUND；列表和汇总使用同样授权范围。
@@ -124,7 +124,7 @@ U=任意有效用户；A=ADMIN；M=ADMIN/SALES_MANAGER；W=开放商机有写权
 | POST /opportunities/{id}/evidence | EvidenceCreate | W | 201 EvidenceView(status=PENDING) | 422 OBJECT_NOT_AVAILABLE/EVIDENCE_RELATIONSHIP_INVALID/EVIDENCE_CURRENCY_MISMATCH/APPROVAL_BASIS_REQUIRED；非法类型/金额/币种按VALIDATION_ERROR；他人文件不可引用；上传不选定 |
 | GET /opportunities/{id}/evidence | page,page_size | U | 200 List<EvidenceView> | 只返回本商机、原件另鉴权 |
 | POST /evidence/{id}/review | {expected_version,decision:VERIFY/REJECT,note,approval_basis?} | M且非submitted_by，须有对象/核验操作权限；V,K | 200 EvidenceView | 403 FORBIDDEN（角色/对象/操作无权）、EVIDENCE_REVIEWER_CONFLICT（自核验）；422 EVIDENCE_IMMUTABLE/NOTE_REQUIRED/EVIDENCE_CURRENCY_MISMATCH/APPROVAL_BASIS_REQUIRED；409 OTHER_APPROVAL_POLICY_PENDING（Q05-A提案）；AI不能核验 |
-| GET /evidence/{id}/download | 无 | U，对象可见且非删除 | 200 {url,expires_at}，60秒私有签名 | 503 STORAGE_UNAVAILABLE；签名过期/非所属对象访问 |
+| GET /evidence/{id}/download | 无 | U，对象可见且非删除 | 200 application/pdf附件，API代理且每次重新鉴权（Q12成交证据范围已批准） | 401无有效会话；404原件不可用；503 STORAGE_UNAVAILABLE或完整性校验失败；无对象签名URL |
 
 关闭与重开接口返回最新详情；状态写入/审计/幂等结果必须同事务。关闭前证据不得靠本次请求body直接创建VERIFIED状态。
 
@@ -294,3 +294,26 @@ PipelineView顶层known/unknown_amount_count指该币种开放商机，stages内
 例：预计250000.00 CNY、核验证据230000.00 CNY的NEGOTIATION商机，经理以当前版本请求WON应成功；响应保留amount=250000.00、weighted_amount=250000.00，actual_amount=230000.00、actual_currency=CNY，实际成交统计增加230000.00。预计null/零亦可成交。证据未核验或实际<=0返回422 EVIDENCE_INVALID，币种不符422 EVIDENCE_CURRENCY_MISMATCH（Q05已批准），版本过期409 VERSION_CONFLICT；均无成功副作用。
 
 M3交付会议解析与suggestions完整审核/apply/reject/abandon/regenerate/execution和jobs接口，依赖M2可靠性与core，不调用RAG/embedding。M4开放知识API，M5开放增强follow-up-suggestions；未交付模块503 FEATURE_NOT_ENABLED。knowledge关闭时知识与增强跟进生成返回503 KNOWLEDGE_DISABLED，启用但故障返回503 KNOWLEDGE_UNAVAILABLE，UI明确禁用并显示原因，不伪装空库；CRM和会议apply继续可用。已有RAG建议在来源无法复核时拒绝apply并保留草稿，不回传伪成功。MinIO故障时上传/下载503 STORAGE_UNAVAILABLE，普通CRM可用。AI_MODE是配置模式而非Compose profile，real配置缺失只禁用AI。以上503沿用ErrorEnvelope，并覆盖关闭/故障/恢复测试。
+# M2.1 用户接口增量（2026-10-27）
+
+以下路径均以 `/api/v1` 为前缀，复用统一 `{data, request_id}` / 错误响应格式，分页另带 `page`，使用 HttpOnly 会话、Origin 与写入 CSRF 检查。公开注册只检查可信 Origin，不要求已有会话。请求拒绝额外字段；邮箱与 CRM 共享格式规则，姓名去首尾空白，密码不裁剪。
+
+| 方法/路径 | 请求/结果 | 权限 |
+|---|---|---|
+| POST `/auth/register` | name,email,password；202 通用受理信息，重复邮箱同响应，无 cookie | 公开；每来源 15 分钟最多 20 次 |
+| GET `/users/roles` | 固定四角色说明 | ADMIN |
+| GET `/users` | page,page_size(1..100),q,role,status(PENDING/ACTIVE/DISABLED/DELETED),is_active；分页 UserPublic | ADMIN |
+| POST `/users` | name,email,password,role,is_active；201 已批准 UserPublic | ADMIN |
+| GET `/users/{id}` | UserPublic，包括 registration_status、deleted_at | ADMIN |
+| PATCH `/users/{id}` | expected_version,reason；可选 name,email,role,is_active | ADMIN |
+| DELETE `/users/{id}` | JSON expected_version,reason；返回逻辑删除后 UserPublic | ADMIN |
+| POST `/users/{id}/approve` | expected_version,reason,role；批准并启用 | ADMIN |
+| POST `/users/{id}/restore` | expected_version,reason；已批准恢复启用，未审批恢复仍不可登录 | ADMIN |
+| POST `/users/{id}/reset-password` | expected_version,reason,new_password；必须 Idempotency-Key | ADMIN |
+| GET `/users/{id}/history` | page,page_size；分页白名单 USER 审计 | ADMIN |
+| PATCH `/auth/profile` | expected_version,name,email,current_password；200 UserPublic，清会话 cookie | 本人 |
+| POST `/auth/change-password` | current_password,new_password；204，清会话 cookie | 本人 |
+
+密码 12..128 字符且不得全为空白，确认密码仅为前端交互。普通角色直接调用管理接口返回 403；待审批/禁用/删除用户不能登录或使用已有会话。版本冲突 409 VERSION_CONFLICT，重复邮箱管理接口 409 EMAIL_EXISTS，最后管理员保护 409 LAST_ADMIN_REQUIRED；未审批不能通过普通 PATCH 绕过审批。错误当前密码 401 WRONG_PASSWORD 与会话失效区分。
+
+管理变更及个人变更撤销目标用户全部会话，客户端随后重新登录。密码重置同 actor、scope、key、body 重放返回原结果，不追加版本/审计；相同 key 不同内容返回 409 IDEMPOTENCY_KEY_REUSED。用户响应、日志和审计不返回密码/哈希，审计仅 ADMIN 可查。不实现邮件发送或公开密码恢复。见 [M2.1 报告](m2-users-report.md)。

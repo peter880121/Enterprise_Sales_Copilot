@@ -3,7 +3,9 @@ from sqlalchemy import inspect
 from alembic import context
 from app.auth import models  # noqa: F401
 from app.core.config import get_settings
+from app.crm import models as crm_models  # noqa: F401
 from app.db import Base, Database
+from app.sales import models as sales_models  # noqa: F401
 
 target_metadata = Base.metadata
 
