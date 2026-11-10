@@ -244,3 +244,5 @@ M2前端入口：`/opportunities`、`/accounts`、`/contacts`、`/activities`、
 真实MinIO/浏览器证据与隔离资源记录见M2报告；原M1容器、卷和历史证据未改动。该验证不代表完整M2 Compose已构建/部署或M2已正式验收。
 
 已启动且仅连接专用测试资源的API/前端可执行源码中的浏览器验收：将E2E_BASE_URL、E2E_EMAIL、E2E_PASSWORD设置为该隔离环境及自行创建的测试账号（不要打印或提交），另设E2E_SALES=true，在frontend运行`npm.cmd run test:e2e -- sales.spec.ts`。本轮工具在本地选择临时端口并于测试结束后停止API/Vite；数据库及MinIO测试资源保留，默认不删除。
+#   E n t e r p r i s e _ S a l e s _ C o p i l o t  
+ 
