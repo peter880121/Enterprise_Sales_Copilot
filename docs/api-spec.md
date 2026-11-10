@@ -1,5 +1,44 @@
 # REST API 契约
 
+## M3-B 当前已批准与实际接口（2026-10-28）
+
+Q07/Q10 已批准，本节覆盖下方历史 M3-A 尚无 apply 的阶段说明；原报告不改写。仍仅 Mock/合成数据，真实 Provider 不启用。
+
+| 方法与路径（/api/v1） | 当前契约 |
+|---|---|
+| POST /suggestions/{id}/apply | 现有写会话+Origin/CSRF，Idempotency-Key 必填；body 为 expected_version、expected_opportunity_version、selected_change_ids（1..20 唯一 UUID）、confirmed（严格 boolean true），不接受客户端字段/值/actor 等额外内容 |
+| POST /suggestions/{id}/regenerate | 现有写会话+Origin/CSRF；body 为 expected_version、expected_opportunity_version、request_token（UUID）；仅DRAFT，允许主动重建过期上下文；202返回新JobAccepted，旧稿同事务转SUPERSEDED，新稿不自动执行 |
+| GET /suggestions/{id}/execution | 当前 AI 对象权限；200 返回原执行回执；尚未执行409 SUGGESTION_NOT_EXECUTED |
+| GET /admin/retention/preview | 仅 ADMIN；可选含时区 as_of（不传则服务端 UTC 当前时刻）；返回 mode=DRY_RUN、writes_enabled=false、各范围期限/到期数/候选数/阻断计数/最多20条 ID 样本及保护记录计数，不返回原文或完整响应 |
+
+分析/建议视图新增 proposed_changes（每项冻结 id/kind/before/values/FACT evidence/换算说明）、execution_enabled、execution_id/result_version/selected_change_ids。旧草稿缺上下文不可执行；仍可按权限查看或拒绝/放弃。apply 成功返回 execution_id、suggestion_id、opportunity_id、selected_change_ids、activity_ids、result_version、executed_by/at；不把未选项执行，不隐式变更阶段/负责人/成交数据。
+
+同 key/body 重放原结果，不同内容409 IDEMPOTENCY_KEY_REUSED；不同 key/相同选择可读同一永久回执，不增加版本/审计/活动；已执行后改变选择409 SUGGESTION_ALREADY_EXECUTED。旧商机版本或活动上下文409 SUGGESTION_STALE，不自动采用新版本；草稿版本冲突409 VERSION_CONFLICT；非法选项422 INVALID_CHANGE_SELECTION；无可执行项422 NO_EXECUTABLE_CHANGES；旧草稿缺冻结上下文409 SUGGESTION_REGENERATE_REQUIRED；跨客户/无效联系人422 RELATIONSHIP_MISMATCH；关联用户无效按既有 OWNER_INVALID 拒绝。失败无部分写入。
+
+阶段不在 Q07 白名单，WON/LOST 及原有冻结规则不变。Q10 没有 POST/DELETE 清理端点，不修改数据；HTTP 认证照常维护会话时间。相对日期仅在会议日期/有效 IANA 时区明确且无歧义时换算并展示依据，其他输入不自动补齐。Q11 仍未批准有效期，expires_at=null。
+
+2026-10-28 收尾修订：所有已识别的标签均先参与重复/歧义判断，空值或超长重复标签不能被忽略后使金额/币种组变为可执行。超出支持日历范围的相对日期以限制说明返回，不使 Worker 发布异常。apply 在业务写入前按当前确定性 Mock 规则复核所选冻结提议；旧提议不再符合当前规则时返回409 SUGGESTION_REGENERATE_REQUIRED，原草稿不改写。合法旧提议仍可执行，永久执行回执仍按原权限及去重契约重放。前端可主动调用既有 GET /opportunities/{id} 读取新草稿的提交基准，保留未保存纪要；此操作不更新旧草稿基准、不自动提交或执行。
+
+当前M3-B补充：regenerate沿用原始合成纪要及会议日期/时区，不接受客户端替换原文、提议值或操作者。新任务/分析/草稿与原稿SUPERSEDED、版本递增及双向白名单审计链接同事务提交；原文、原提议及执行回执不覆盖。视图通过审计链接提供replacement_analysis_id，刷新后仍能打开替代草稿。同actor/source/token重试返回同一Job，改body为409 IDEMPOTENCY_KEY_REUSED；新token不能再次替代同一旧稿。版本不符409 VERSION_CONFLICT，非DRAFT为409 INVALID_SUGGESTION_STATUS，关闭商机422 TERMINAL_OPPORTUNITY。新任务失败不恢复旧稿，终态不可通过regenerate复活。需要修改原文时使用原有新纪要提交表单。
+
+## M3-A 实际交付子集（2026-10-28）
+
+
+完整 §6 中尚未交付接口不能视为可用。用户本轮仅批准 Mock 解析/草稿审核。以下使用现有会话、Origin/CSRF、统一 envelope/错误响应，POST 额外字段拒绝；原文不因 CRM 全企业可读而开放。
+
+| 方法与路径（/api/v1） | 实际行为 |
+|---|---|
+| POST /opportunities/{id}/meeting-analyses | expected_opportunity_version、meeting_text（非空≤50000字符）、meeting_date?、timezone（默认 Asia/Hong_Kong、有效 IANA 名）、request_token（UUID）；202 返回 job_id/status/resource_id/poll_url/mode=MOCK；同 token 内容冲突 409；只接受开放商机 |
+| GET /opportunities/{id}/meeting-analyses | page/page_size 分页，摘要不含原文；按当前 AI 对象权限检查 |
+| GET /meeting-analyses/{id} | 排队/运行/失败/成功状态、受限原文、验证后的结果与 suggestion；execution_enabled=false |
+| GET /jobs/{id} | 当前状态/attempts/error_code/progress/资源指针，不暴露租约/内部输入；REP 除目标权限外还须为任务创建者 |
+| GET /suggestions/{id} | 只读审核草稿；proposed_changes=[]、expires_at=null、effective_status 可报告 STALE；无可执行更新 |
+| POST /suggestions/{id}/reject、/abandon | expected_version、reason、Idempotency-Key；同事务审核/版本/幂等/审计，拒绝或放弃，不写 CRM；过期版本409、非DRAFT409 |
+
+有效 ADMIN/SALES_MANAGER 或当前负责人 REP 可访问对应原文/草稿；READ_ONLY 和他人 REP 403。停用/角色/负责人变化会重新鉴权，Worker 发布亦复核。REAL 配置返回 503 AI_PROVIDER_UNAVAILABLE，不回退 Mock。错误输出/引文不匹配：Job FAILED/AI_OUTPUT_INVALID；超时至多 3 次、未成功不返回草稿；失去租约的结果不能发布。FACT 只表示原文记载，非独立真实性核验；INFERENCE 显式标记，UNKNOWN 不允许伪造值。证据偏移为 Python/Unicode 码点，前端显示引文，不按 UTF-16 下标重新截取。
+
+apply、execution、自动过期、清理、真实 Provider、知识检索均不在本轮实现；Q07/Q10 等状态不变。
+
 第二轮设计提案 v0.2 · 2026-10-26。前缀 `/api/v1`。本文件描述待实现契约；详细字段范围以 [data-model.md](data-model.md) 和 [technical-design.md](technical-design.md) 为准。
 
 实施状态：M1正式验收通过；Q03—Q06已批准；用户于2026-10-27明确授权开始M2。Q11仅成交证据PDF≤20 MiB/≤100页获批，Q12仅成交证据API代理下载、每次重新鉴权获批；Q05-A、Q07—Q10及Q11/Q12其余范围继续待确认。实施与未完成项见[M2报告](m2-report.md)，不自动进入M3。

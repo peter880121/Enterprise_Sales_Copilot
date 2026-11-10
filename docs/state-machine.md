@@ -1,5 +1,7 @@
 # 状态机、事务与受控执行
 
+2026-10-28 当前Mock重生成补充：仅DRAFT（可含effective_status=STALE）经明确版本及request_token确认转SUPERSEDED，同时创建独立新草稿任务；GENERATING、REJECTED、ABANDONED、FAILED、EXECUTED、SUPERSEDED不可重新进入DRAFT。新任务失败不恢复旧稿。apply与regenerate共享商机/建议锁，竞争只有一个成功；重生成不改变商机版本、金额、阶段或活动。Q11自动过期仍未批准，旧设计中EXPIRED/24小时不因此启用。
+
 第二轮设计提案 v0.2 · 2026-10-26。集中领域规则是所有手动操作、批处理和AI入口的唯一权威；前端 capabilities 仅辅助展示。
 
 实施状态：M1正式验收通过；Q03—Q06已批准；用户于2026-10-27明确授权开始M2。Q11仅成交证据PDF≤20 MiB/≤100页获批，Q12仅成交证据API代理下载、每次重新鉴权获批；Q05-A、Q07—Q10及Q11/Q12其余范围继续待确认。实施与未完成项见[M2报告](m2-report.md)，不自动进入M3。

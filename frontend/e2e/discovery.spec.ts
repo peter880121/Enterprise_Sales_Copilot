@@ -1,0 +1,57 @@
+import { test, expect } from '@playwright/test';
+const users = JSON.parse(process.env.M2_BROWSER_USERS || '{}') as Record<string, { id: string; email: string }>;
+
+test('D1 uploads evidence, discovers a real RULES lead, reviews it and links one customer after response loss', async ({ page }, testInfo) => {
+  test.skip(!process.env.E2E_SALES || !users.SALES_MANAGER, 'Explicit isolated D1 environment required');
+  test.setTimeout(90000);
+  await page.goto('/login');
+  await page.getByLabel('邮箱', { exact: true }).fill(users.SALES_MANAGER.email);
+  await page.getByLabel('密码', { exact: true }).fill(process.env.E2E_PASSWORD!);
+  await page.getByRole('button', { name: '进入工作空间' }).click();
+  await expect(page.getByRole('heading', { name: '工作空间概览' })).toBeVisible();
+  await page.getByRole('button', { name: /商机发现 D[12]/ }).click();
+  const tag = crypto.randomUUID().slice(0, 8), buyer = `Synthetic hospital ${tag}`, project = `Synthetic ultrasound ${tag}`;
+  const form = page.getByRole('form', { name: '新建销售画像' });
+  await form.getByLabel('画像名称', { exact: true }).fill(`Synthetic profile ${tag}`);
+  await form.getByLabel('产品或解决方案').fill('Synthetic ultrasound devices');
+  await form.getByLabel('匹配关键词').fill('超声');
+  await expect(form.getByLabel('空间可见性')).toHaveValue('PRIVATE');
+  await form.getByRole('button', { name: '创建画像', exact: true }).click();
+  await expect(page.getByRole('heading', { name: `当前画像：Synthetic profile ${tag} · 基准版本 1` })).toBeVisible();
+  const materials = page.getByRole('region', { name: '发现资料与任务' });
+  await materials.getByLabel('我确认不包含患者身份、病例或检查影像资料').check();
+  await materials.getByLabel('上传TXT或Markdown').setInputFiles({ name: `synthetic-${tag}.md`, mimeType: 'text/markdown', buffer: Buffer.from(`采购人：${buyer}\n项目：${project}\n品类：超声\n公告类型：采购意向\n采购代理：Synthetic agent\n预算：120万元 人民币`, 'utf8') });
+  await materials.getByRole('checkbox', { name: `synthetic-${tag}.md · 采购需求` }).check();
+  await materials.getByRole('button', { name: '从所选需求资料发现线索' }).click();
+  await expect(materials.getByRole('status')).toContainText('SUCCEEDED');
+  await materials.getByRole('button', { name: '读取服务端线索结果' }).click();
+  await page.getByRole('button', { name: `${buyer} · ${project} · NEW`, exact: true }).click();
+  const detail = page.getByRole('region', { name: '线索详情', exact: true });
+  await expect(detail.getByText(/不是联网搜索或真实模型判断/)).toBeVisible();
+  await expect(detail.getByText(/来源预算：1200000.00 CNY/)).toBeVisible();
+  await detail.getByRole('button', { name: '核对原始资料', exact: true }).click();
+  await expect(detail.locator('pre')).toContainText(buyer);
+  await detail.getByLabel('人工评审说明').fill('Synthetic evidence checked; no qualification certification claimed');
+  await detail.getByRole('button', { name: '进入人工评审', exact: true }).click();
+  await detail.getByRole('button', { name: '认可此线索', exact: true }).click();
+  const link = detail.getByRole('region', { name: '人工客户关联' });
+  await link.getByRole('button', { name: '预览客户关联' }).click();
+  await expect(link.getByLabel('我确认将审核后的客户基础字段加入全企业CRM')).not.toBeChecked();
+  await link.getByLabel('我确认将审核后的客户基础字段加入全企业CRM').check();
+  let first = true; const keys: string[] = [];
+  await page.route('**/api/v1/discovery/leads/*/link-account', async route => {
+    keys.push(route.request().headers()['idempotency-key']);
+    if (first) { first = false; expect((await route.fetch()).status()).toBe(200); await route.abort('failed'); }
+    else await route.continue();
+  });
+  await link.getByRole('button', { name: '确认建立客户关联' }).click();
+  await expect(link.getByRole('alert')).toContainText('无法连接服务');
+  await link.getByRole('button', { name: '确认建立客户关联' }).click();
+  await expect(detail.getByRole('link', { name: '查看关联客户' })).toBeVisible();
+  expect(keys).toHaveLength(2); expect(keys[0]).toBe(keys[1]);
+  const accounts = (await (await page.request.get(`/api/v1/accounts?q=${encodeURIComponent(buyer)}`)).json()).data;
+  expect(accounts).toHaveLength(1); expect(accounts[0].description).toBeNull();
+  const opportunities = (await (await page.request.get(`/api/v1/opportunities?q=${encodeURIComponent(tag)}`)).json()).data;
+  expect(opportunities).toHaveLength(0);
+  await page.screenshot({ path: testInfo.outputPath('discovery-reviewed-account-once.png'), fullPage: true });
+});

@@ -16,6 +16,10 @@ from app.core.errors import AppError, error_response
 from app.core.logging import configure_logging
 from app.crm.router import router as crm_router
 from app.db import Database
+from app.discovery.router import DiscoveryBodyLimit
+from app.discovery.router import router as discovery_router
+from app.meetings.retention import router as retention_router
+from app.meetings.router import router as meetings_router
 from app.sales.files import UploadBodyLimit
 from app.sales.router import router as sales_router
 from app.storage import ObjectStorage
@@ -36,6 +40,7 @@ def create_app(settings=None, database=None, storage=None):
 
     app = FastAPI(title="Enterprise Sales Copilot", version="0.1.0", lifespan=lifespan)
     app.add_middleware(UploadBodyLimit)
+    app.add_middleware(DiscoveryBodyLimit)
     app.state.settings, app.state.db = settings, db
     app.state.storage = storage or ObjectStorage(settings)
     app.state.auth = AuthService(db, settings)
@@ -141,6 +146,9 @@ def create_app(settings=None, database=None, storage=None):
     app.include_router(crm_router, prefix="/api/v1")
     app.include_router(sales_router, prefix="/api/v1")
     app.include_router(users_router, prefix="/api/v1")
+    app.include_router(meetings_router, prefix="/api/v1")
+    app.include_router(retention_router, prefix="/api/v1")
+    app.include_router(discovery_router, prefix="/api/v1")
 
     @app.get("/api/v1/health/live")
     def live():
@@ -172,14 +180,14 @@ def create_app(settings=None, database=None, storage=None):
                 else {
                     "mode": "REAL",
                     "available": False,
-                    "reason": "real_provider_not_implemented_m1",
+                    "reason": "real_provider_not_authorized_m3a",
                 },
                 "knowledge": {
                     "enabled": settings.knowledge_enabled,
                     "available": False,
                     "reason": "not_implemented_m1",
                 },
-                "worker": {"available": False, "reason": "skeleton_only_no_business_handlers"},
+                "worker": {"available": False, "reason": "health_not_exposed_check_job_progress"},
             },
             "request_id": request.state.request_id,
         }

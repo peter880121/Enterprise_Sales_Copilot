@@ -1,5 +1,7 @@
 # Enterprise Sales Copilot 技术设计
 
+当前批准增量（2026-10-28）：Q07/Q10 已批准并进入 M3-B，具体以 decisions.md 最新记录和 m3-b-plan.md 为准。下方原阶段“待确认”记录保留其历史时点。执行白名单不含任何阶段转换；Q10 本轮仅管理员 dry-run，不删除资料；Q09 真实 Provider、Q11 草稿有效期及其余未批准范围继续待确认。
+
 版本：0.3 · 日期：2026-10-27 · 状态：M1正式验收通过；Q03—Q06已批准；用户于2026-10-27明确授权开始M2。Q11仅成交证据PDF≤20 MiB/≤100页获批，Q12仅成交证据API代理下载、每次重新鉴权获批；Q05-A、Q07—Q10及Q11/Q12其余范围继续待确认。实施与未完成项见[M2报告](m2-report.md)，不自动进入M3。
 
 依据：[AGENTS.MD](../AGENTS.MD)、首轮对参考图的记录及2026-10-26第二轮修订指令。M0第二轮仅修订八份设计文档；当前按用户2026-10-27授权实施M2，AGENTS.MD及M1历史执行报告保持原样。本文中的参数是建议默认值，验收目标不是已完成或已实测结果。
@@ -125,9 +127,9 @@ EvidenceValue<T> = {value:T|null, kind:FACT|INFERENCE|UNKNOWN, evidence:[{source
 
 ### 6.3 可执行建议边界
 
-以下具体白名单为Q07待确认提案，不随Q04—Q06批准；其中probability禁止人工/AI覆盖已由Q06明确批准。
+以下普通字段/活动白名单已于 2026-10-28 随 Q07 批准，阶段转换明确排除；probability 禁止人工/AI 覆盖仍由 Q06 冻结。
 
-MeetingAnalysis 保存需求、预算、联系人、决策人和风险结构，不等同于自动扩展 CRM 字段。AISuggestion MVP 绑定单一 Opportunity。允许 AI 提议 amount、currency、expected_close_date、priority、source、primary_contact_id（必须是该企业已有有效联系人），以及通过显式原文意图提议开放阶段的合法转换；阶段属于关键字段，必须 FACT + 用户确认 + 状态机复检。金额与币种相互依赖时成组选择；未确认预算不直接等同 amount。
+MeetingAnalysis 保存需求、预算、联系人、决策人和风险结构，不等同于自动扩展 CRM 字段。AISuggestion 绑定单一 Opportunity。允许提议 amount、currency、expected_close_date、priority、source、primary_contact_id（同客户已有有效联系人），仅 FACT + 用户逐项确认后执行。阶段转换仍使用既有人工命令，AI 不执行任何阶段转换。金额与币种以一组冻结并确认，不换汇；预算不等同 amount，缺失不清空、未知不转零。
 
 可提议追加 NOTE/TASK Activity，引用需求与风险保留为关联活动/解析记录；任务负责人由用户在合法范围明确确认。禁止 AI 提议或执行 owner_id、probability、weighted_amount、WON/LOST、close_evidence、用户角色与权限。客户资料修订作为文字建议，本期由用户手动编辑客户，不伪装成可执行工具。跟进建议可完全是 advisory：行动、理由、引用、缺失信息、风险、日期/优先级；无可执行 change 时禁止“接受并执行”，提供“已阅/放弃”。confidence 不存储，避免未校准分数被误解为业务概率。
 

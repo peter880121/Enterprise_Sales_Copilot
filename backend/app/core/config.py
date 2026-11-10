@@ -42,6 +42,11 @@ class Settings(BaseSettings):
     minio_bucket: str = "esc-evidence"
     ai_mode: Literal["mock", "real"] = "mock"
     knowledge_enabled: bool = False
+    tavily_base_url: str = "https://mcp.tavily.com/mcp"
+    tavily_api_key: SecretStr | None = None
+    discovery_search_enabled: bool = False
+    discovery_search_user_daily_limit: int = Field(default=10, ge=1, le=100)
+    discovery_search_global_daily_limit: int = Field(default=50, ge=1, le=1000)
     enable_dev_seed: bool = False
 
     @field_validator("minio_bucket", mode="before")

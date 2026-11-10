@@ -10,6 +10,47 @@ from app.schema import CURRENT_REVISION
 
 # No schema-wide grants: new tables receive no implicit runtime privileges.
 TABLE_PRIVILEGES = {
+    "discovery_search_guard": ("SELECT", "UPDATE (version)"),
+    "discovery_search_runs": (
+        "SELECT",
+        "INSERT",
+        "UPDATE (status, provider_attempted, lease_token, lease_until, started_at, "
+        "completed_at, error_code, result, version, updated_at)",
+    ),
+    "discovery_profiles": (
+        "SELECT",
+        "INSERT",
+        "UPDATE (name, product, keywords, regions, version, updated_at)",
+    ),
+    "discovery_access": ("SELECT", "INSERT", "UPDATE (is_active)"),
+    "discovery_materials": ("SELECT", "INSERT"),
+    "discovery_runs": (
+        "SELECT",
+        "INSERT",
+        "UPDATE (status, attempts, lease_token, lease_until, error_code, "
+        "result_count, version, updated_at)",
+    ),
+    "discovery_run_materials": ("SELECT", "INSERT"),
+    "discovery_leads": (
+        "SELECT",
+        "INSERT",
+        "UPDATE (status, summary_shared, review_note, account_id, version, updated_at)",
+    ),
+    "discovery_account_links": ("SELECT", "INSERT"),
+    "jobs": (
+        "SELECT",
+        "INSERT",
+        "UPDATE (status, attempts, available_at, lease_until, lease_token, error_code, updated_at)",
+    ),
+    "meeting_analyses": ("SELECT", "INSERT", "UPDATE (status, result, updated_at)"),
+    "ai_suggestions": (
+        "SELECT",
+        "INSERT",
+        "UPDATE (status, reason, reviewed_by, reviewed_at, version, updated_at, proposed_changes, "
+        "execution_id, executed_at, result_version, selected_change_ids)",
+    ),
+    "suggestion_executions": ("SELECT", "INSERT"),
+    "ai_runs": ("SELECT", "INSERT", "UPDATE (status, error_code, ended_at, latency_ms)"),
     "alembic_version": ("SELECT",),
     "users": (
         "SELECT",
@@ -23,7 +64,11 @@ TABLE_PRIVILEGES = {
     "accounts": ("SELECT", "INSERT", "UPDATE"),
     "contacts": ("SELECT", "INSERT", "UPDATE"),
     "opportunities": ("SELECT", "INSERT", "UPDATE"),
-    "activities": ("SELECT", "INSERT", "UPDATE"),
+    "activities": (
+        "SELECT",
+        "INSERT",
+        "UPDATE (subject, content, due_at, status, completed_at, version, updated_at)",
+    ),
     "audit_events": ("SELECT", "INSERT"),
     "idempotency_records": ("SELECT", "INSERT"),
     "stored_objects": ("SELECT", "INSERT", "UPDATE (status, storage_version_id)"),

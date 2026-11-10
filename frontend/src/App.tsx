@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { lazy, Suspense, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -12,6 +12,9 @@ import { CRMWorkspace } from './crm';
 import { SalesWorkspace } from './sales';
 import { Profile, Register, UsersWorkspace } from './users';
 import { userEmail } from './user-validation';
+import { Meetings } from './meetings';
+import { RetentionPreview } from './retention';
+const DiscoveryWorkspace = lazy(() => import('./discovery').then(module => ({ default: module.DiscoveryWorkspace })));
 
 const loginSchema = z.object({
   email: userEmail,
@@ -77,30 +80,33 @@ function StatusPanel() {
 
 function Workspace({ session }: { session: SessionData }) {
   const location = useLocation();
+  const discoveryPage = location.pathname === '/discovery';
   const crmPage = location.pathname.startsWith('/accounts') || location.pathname === '/contacts';
   const salesPage = location.pathname.startsWith('/opportunities') || ['/activities', '/audit-events'].includes(location.pathname);
   const usersPage = location.pathname.startsWith('/users');
   const profilePage = location.pathname === '/profile';
+  const meetingsPage = location.pathname === '/meetings';
+  const retentionPage = location.pathname === '/retention';
   const cache = useQueryClient();
   const navigate = useNavigate();
   const [logoutError, setLogoutError] = useState('');
   const [loggingOut, setLoggingOut] = useState(false);
   const items = [[LayoutDashboard, '工作空间', 'M2'], [Target, '销售商机', 'M2'],
     [Users, '客户与联系人', 'M2'], [Activity, '销售活动', 'M2'], [BookOpen, '企业知识库', 'M4'],
-    [ShieldCheck, '审计日志', 'M2'], [Users, '用户管理', 'M2.1'], [ShieldCheck, '个人账号', 'M2.1']] as const;
+    [ShieldCheck, '审计日志', 'M2'], [Users, '用户管理', 'M2.1'], [ShieldCheck, '个人账号', 'M2.1'], [Activity, '会议解析', 'M3-B'], [ShieldCheck, '保留预览', 'Q10']] as const;
   return <div className="workspace"><aside className="sidebar">
     <Link to="/" className="brand"><Command size={23} /><span>SALES COPILOT<small>ENTERPRISE</small></span></Link>
     <div className="workspace-label">销售工作空间 <PanelLeftClose size={14} /></div>
-    <nav aria-label="主导航">{items.map(([Icon, name, stage], index) => index === 6 && session.user.role !== 'ADMIN' ? null : <button key={name}
-      className={(usersPage ? index === 6 : profilePage ? index === 7 : salesPage ? index === (location.pathname === '/activities' ? 3 : location.pathname === '/audit-events' ? 5 : 1) : crmPage ? index === 2 : index === 0) ? 'nav-item selected' : 'nav-item'}
-      disabled={index === 4 || (index === 5 && !['ADMIN', 'SALES_MANAGER'].includes(session.user.role))}
-      onClick={() => navigate(index === 6 ? '/users' : index === 7 ? '/profile' : index === 2 ? '/accounts' : index === 1 ? '/opportunities' : index === 3 ? '/activities' : index === 5 ? '/audit-events' : '/')}
+    <nav aria-label="主导航"><button className={discoveryPage ? 'nav-item selected' : 'nav-item'} onClick={() => navigate('/discovery')}><Target size={17} /><span>商机发现</span><small>D2</small></button>{items.map(([Icon, name, stage], index) => [6, 9].includes(index) && session.user.role !== 'ADMIN' ? null : <button key={name}
+      className={(discoveryPage ? false : retentionPage ? index === 9 : meetingsPage ? index === 8 : usersPage ? index === 6 : profilePage ? index === 7 : salesPage ? index === (location.pathname === '/activities' ? 3 : location.pathname === '/audit-events' ? 5 : 1) : crmPage ? index === 2 : index === 0) ? 'nav-item selected' : 'nav-item'}
+      disabled={index === 4 || (index === 8 && session.user.role === 'READ_ONLY') || (index === 5 && !['ADMIN', 'SALES_MANAGER'].includes(session.user.role))}
+      onClick={() => navigate(index === 9 ? '/retention' : index === 8 ? '/meetings' : index === 6 ? '/users' : index === 7 ? '/profile' : index === 2 ? '/accounts' : index === 1 ? '/opportunities' : index === 3 ? '/activities' : index === 5 ? '/audit-events' : '/')}
       title={index === 4 ? `${stage} 交付，当前不可用` : undefined}>
       <Icon size={17} /><span>{name}</span><small>{stage}</small></button>)}</nav>
     <div className="sidebar-foot"><ShieldCheck size={17} /><span>后端权限校验<small>单企业 · 安全会话</small></span></div>
   </aside><div className="workspace-main"><header className="topbar">
-    <div>工作空间 <ChevronRight size={14} /><strong>{usersPage ? '用户与权限' : profilePage ? '个人账号' : salesPage ? '销售商机' : crmPage ? '客户与联系人' : '概览'}</strong></div>
-    <span className="phase">{usersPage || profilePage ? 'M2.1 / USERS' : salesPage ? 'M2 / SALES' : crmPage ? 'M2-A / CRM' : 'M2 / WORKSPACE'}</span><div className="identity"><span className="avatar">{session.user.name.slice(0, 1)}</span>
+    <div>工作空间 <ChevronRight size={14} /><strong>{discoveryPage ? '商机发现' : retentionPage ? '保留策略预览' : meetingsPage ? '会议解析与草稿' : usersPage ? '用户与权限' : profilePage ? '个人账号' : salesPage ? '销售商机' : crmPage ? '客户与联系人' : '概览'}</strong></div>
+    <span className="phase">{discoveryPage ? 'D2 / SEARCH' : retentionPage ? 'Q10 / DRY-RUN' : meetingsPage ? 'M3-B / MOCK' : usersPage || profilePage ? 'M2.1 / USERS' : salesPage ? 'M2 / SALES' : crmPage ? 'M2-A / CRM' : 'M2 / WORKSPACE'}</span><div className="identity"><span className="avatar">{session.user.name.slice(0, 1)}</span>
       <span>{session.user.name}<small>{session.user.role}</small></span>
       <button aria-label="退出登录" title="退出登录" disabled={loggingOut} onClick={async () => {
         setLoggingOut(true); setLogoutError('');
@@ -109,10 +115,10 @@ function Workspace({ session }: { session: SessionData }) {
         finally { setLoggingOut(false); }
       }}><LogOut size={16} /></button></div>
     </header><main className="content">{logoutError && <ErrorState message={logoutError} />}
-      {usersPage ? <UsersWorkspace session={session} /> : profilePage ? <Profile /> : salesPage ? <SalesWorkspace session={session} /> : crmPage ? <CRMWorkspace session={session} /> : <>
+      {discoveryPage ? <Suspense fallback={<Loading />}><DiscoveryWorkspace session={session} /></Suspense> : retentionPage ? <RetentionPreview session={session} /> : meetingsPage ? <Meetings session={session} /> : usersPage ? <UsersWorkspace session={session} /> : profilePage ? <Profile /> : salesPage ? <SalesWorkspace session={session} /> : crmPage ? <CRMWorkspace session={session} /> : <>
       <div className="page-heading"><div><span className="eyebrow">WORKSPACE / OVERVIEW</span>
-        <h1>工作空间概览</h1><p>CRM 核心流程与用户管理已接入，AI 和知识库仍在后续阶段。</p></div>
-        <span className="outline-badge">M2 · CRM 与用户管理</span></div>
+        <h1>工作空间概览</h1><p>CRM 与用户管理已接入；当前新增 M3-B 人工确认后的受控执行和只读保留预览，知识库尚未交付。</p></div>
+        <span className="outline-badge">M3-B · 人工确认受控执行</span></div>
       <div className="overview-grid"><section className="panel welcome">
         <span className="eyebrow">WELCOME, {session.user.name}</span><h2>为销售业务建立可靠的起点</h2>
         <p>客户、联系人、商机、成交证据和用户管理已接入真实服务。AI 与知识库仍在后续阶段。</p>
@@ -122,7 +128,7 @@ function Workspace({ session }: { session: SessionData }) {
           <span>当前阶段</span></div>
       </section><StatusPanel /></div>
       <section className="panel"><header className="panel-title"><h2>销售业务区域</h2><span>M2 起交付</span></header>
-        <EmptyState title="进入销售商机查看 Pipeline" description="客户与联系人、商机和成交证据已接入真实 API。知识库与 AI 仍待后续阶段交付。" /></section>
+        <EmptyState title="进入销售商机查看 Pipeline" description="客户、商机和成交证据已接入真实 API。会议解析为明确标记的 Mock 演示，不执行 CRM 更新；知识库尚未交付。" /></section>
       <footer>Enterprise Sales Copilot · 单企业工作空间<span>会话身份由后端验证</span></footer>
       </>}
     </main></div></div>;

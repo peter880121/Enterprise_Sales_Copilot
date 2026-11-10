@@ -108,6 +108,13 @@ services:
 
   api:
     <<: *api
+    environment:
+      <<: *app-environment
+      TAVILY_BASE_URL: ${TAVILY_BASE_URL:-https://mcp.tavily.com/mcp}
+      TAVILY_API_KEY: ${TAVILY_API_KEY:-}
+      DISCOVERY_SEARCH_ENABLED: ${DISCOVERY_SEARCH_ENABLED:-false}
+      DISCOVERY_SEARCH_USER_DAILY_LIMIT: ${DISCOVERY_SEARCH_USER_DAILY_LIMIT:-10}
+      DISCOVERY_SEARCH_GLOBAL_DAILY_LIMIT: ${DISCOVERY_SEARCH_GLOBAL_DAILY_LIMIT:-50}
     depends_on:
       mysql: {condition: service_healthy}
       migrate: {condition: service_completed_successfully}
@@ -121,6 +128,13 @@ services:
 
   worker:
     <<: *api
+    environment:
+      <<: *app-environment
+      TAVILY_BASE_URL: ${TAVILY_BASE_URL:-https://mcp.tavily.com/mcp}
+      TAVILY_API_KEY: ${TAVILY_API_KEY:-}
+      DISCOVERY_SEARCH_ENABLED: ${DISCOVERY_SEARCH_ENABLED:-false}
+      DISCOVERY_SEARCH_USER_DAILY_LIMIT: ${DISCOVERY_SEARCH_USER_DAILY_LIMIT:-10}
+      DISCOVERY_SEARCH_GLOBAL_DAILY_LIMIT: ${DISCOVERY_SEARCH_GLOBAL_DAILY_LIMIT:-50}
     command: [python, -m, app.worker]
     depends_on:
       migrate: {condition: service_completed_successfully}

@@ -1,5 +1,23 @@
 # 数据模型与业务不变量
 
+2026-10-28 重生成增量：0007_regenerate只扩展ai_suggestions状态约束，增加实际使用的SUPERSEDED，不改写任何既有行。旧DRAFT经显式regenerate后版本递增并保留原文/提议，新Job/MeetingAnalysis/Suggestion使用新ID并冻结当前商机及活动上下文。MEETING_QUEUED审计的related_suggestion_id与SUGGESTION_SUPERSEDED审计的replacement_analysis_id构成追加式来源链接，不新增可更新的原文/来源字段或运行授权。没有执行历史、期限或清理规则变更。
+
+## M3-B 当前增量（2026-10-28）
+
+Q07/Q10 已批准。`0006_execution` 接续 0005_meetings，为 Suggestion 增加冻结 proposed_changes、base_snapshot、context_digest、唯一 execution_id、executed_at、result_version、selected_change_ids，增加 EXECUTED 状态及完整性 CHECK。新 suggestion_executions 保存不可改写的唯一建议执行回执（suggestion_id 唯一）；Activity 增加可空唯一 ai_execution_key，旧活动保持 null。没有回填旧草稿为可执行状态，没有删除旧数据。
+
+上下文摘要涵盖商机获批字段、负责人/客户/阶段/版本及关联活动 ID/版本。仅客户端提交的冻结 change ID 可被选中；金额/币种和 TASK 的必要参数各为不可拆分项。生成与 apply 均不把供应商对象当作 ORM 更新字典；后端再次白名单/Schema/关系/权限/版本/上下文检查。一次 apply 商机只递增一次版本，全部活动与审计/执行/幂等在一个事务。未选项不能在同一草稿补执行。
+
+Q10 当前只有 SELECT 预览，90/30/7 日按 UTC 满期限计算，进行中/待审核/执行引用阻断；只建议评审原文副本、详情和完整响应，不建议删除身份行或永久去重。原文/审计/证据/业务字段/执行记录均不被本轮清理。Suggestion.expires_at 继续 null，Q11 的有效期另待确认。
+
+## M3-A 已授权增量（2026-10-28）
+
+`0005_meetings` 接续 0004_users，仅新增 jobs、meeting_analyses、ai_suggestions、ai_runs；不改变 CRM/用户旧表与历史行。实现细节以迁移和 app/meetings/models.py 为准。原 §6 是完整 M3 设计，本轮按用户限定范围实现其子集：Job 专用于会议，结果通过 analysis 指针读取，不保存可执行 proposed_changes；没有 execution_id 或 EXECUTED 状态。Suggestion.expires_at 可空且始终 null；不按旧 24 小时提案过期，不实现 Q10 清理。
+
+原文不可更新，输入 SHA-256 用于校验/审计；MeetingAnalysis 原文及结果独立权限，仅当前有商机 AI 操作权限者读取。Job dedupe_key 同时限定创建者/商机/request_token，request_hash 对规范化请求内容校验。租约 token/截止时间用于运行恢复，不是资料有效期；每次领取保留独立 AIRun，过期 Worker 结果只能标记自己的运行 DISCARDED，不能覆盖新结果。
+
+Suggestion 审核仅 DRAFT→REJECTED/ABANDONED，锁行+版本校验，同事务写审计及已有幂等表；不改变商机版本或活动。原文、抽取结果、引文、审核说明不复制到审计快照。AI 表均无运行 DELETE 权限，纪要输入/来源 ID、运行输入 hash 等没有 UPDATE 授权。新增表不引入保留策略、清理或第二套 ORM。
+
 第二轮设计提案 v0.2 · 2026-10-26。数据库基线为 MySQL 8.4 / InnoDB，技术基线已依本轮指令确定（ADR-01/02），Q04/Q05/Q06已批准；Q11/Q12成交证据范围本轮批准，其他范围待确认。逻辑设计与本轮物理实现差异见M2报告；未交付模块仍非已创建迁移。
 
 实施状态：M1正式验收通过；Q03—Q06已批准；用户于2026-10-27明确授权开始M2。Q11仅成交证据PDF≤20 MiB/≤100页获批，Q12仅成交证据API代理下载、每次重新鉴权获批；Q05-A、Q07—Q10及Q11/Q12其余范围继续待确认。实施与未完成项见[M2报告](m2-report.md)，不自动进入M3。

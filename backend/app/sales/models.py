@@ -181,6 +181,7 @@ class IdempotencyRecord(Base):
 class Activity(Versioned, Base):
     __tablename__ = "activities"
     __table_args__ = (
+        UniqueConstraint("ai_execution_key", name="uq_activity_ai_execution"),
         CheckConstraint(
             "type IN ('CALL','MEETING','EMAIL','NOTE','TASK')", name="ck_activity_type"
         ),
@@ -210,3 +211,4 @@ class Activity(Versioned, Base):
     status: Mapped[str] = mapped_column(String(16))
     completed_at: Mapped[datetime | None] = mapped_column(DATETIME(fsp=6))
     created_by: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"))
+    ai_execution_key: Mapped[str | None] = mapped_column(String(100))

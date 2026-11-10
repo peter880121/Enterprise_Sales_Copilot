@@ -129,12 +129,16 @@ def test_database_transaction_lifecycle(settings):
     db.close()
 
 
-def test_mock_explicit_and_no_business_implementation():
+def test_mock_explicit_labelled_extraction_and_no_embedding():
     provider = MockProvider()
     assert provider.status()["mode"] == "MOCK"
     assert provider.chat("synthetic")["mode"] == "MOCK"
+    result = provider.structured_generate("synthetic")
+    assert result["mode"] == "MOCK"
+    assert all(item["kind"] == "UNKNOWN" for item in result["facts"])
+    assert result["proposed_changes"] == []
     with pytest.raises(NotImplementedError):
-        provider.structured_generate("synthetic")
+        provider.embed(["synthetic"])
 
 
 def test_logs_only_operational_whitelist():
